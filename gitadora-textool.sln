@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio 15
+VisualStudioVersion = 15.0.27130.2010
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "gitadora-textool", "gitadora-textool\gitadora-textool.csproj", "{8C5CC09A-436C-4CAA-9213-31A4F351DBDC}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "gitadora-texbintool", "gitadora-texbintool\gitadora-texbintool.csproj", "{14F21197-8FF1-4A4F-B976-AAA55378FADE}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{8C5CC09A-436C-4CAA-9213-31A4F351DBDC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8C5CC09A-436C-4CAA-9213-31A4F351DBDC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8C5CC09A-436C-4CAA-9213-31A4F351DBDC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8C5CC09A-436C-4CAA-9213-31A4F351DBDC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{14F21197-8FF1-4A4F-B976-AAA55378FADE}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{14F21197-8FF1-4A4F-B976-AAA55378FADE}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{14F21197-8FF1-4A4F-B976-AAA55378FADE}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{14F21197-8FF1-4A4F-B976-AAA55378FADE}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {5EDE6B8F-78F2-46C0-A47E-D3A53277210A}
+	EndGlobalSection
+EndGlobal
