@@ -9,7 +9,7 @@ jobs:
 
       - run:
           name: Build project
-          command: xbuild /p:Configuration=Release gitadora-textool.sln
+          command: msbuild /p:Configuration=Release gitadora-textool.sln
 
       - deploy:
           name: Deploy
