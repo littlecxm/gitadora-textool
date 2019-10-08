@@ -16,6 +16,6 @@ jobs:
           command: |
             if [ "${CIRCLE_BRANCH}" == "master" ]; then
               mkdir -p deploy
-              mv gitadora-texbintool/bin/Release/* deploy/
+              pushd gitadora-texbintool/bin/Release/ && zip -r ../../../deploy/release.zip * && popd
               ghr -t "${GITHUB_TOKEN}" -u "${CIRCLE_PROJECT_USERNAME}" -r "${CIRCLE_PROJECT_REPONAME}" -c "${CIRCLE_SHA1}" -delete "release-`date '+%Y%m%d-%H%M%S'`" deploy/
             fi
