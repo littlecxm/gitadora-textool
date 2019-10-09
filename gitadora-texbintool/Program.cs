@@ -46,6 +46,22 @@ namespace gitadora_texbintool
         }
     }
 
+    public class FormatInfo
+    {
+        public string Filename;
+        public byte FormatType;
+    }
+
+    public class FormatMetadata
+    {
+        public List<FormatInfo> FormatInfo;
+
+        public FormatMetadata()
+        {
+            FormatInfo = new List<FormatInfo>();
+        }
+    }
+
     class Program
     {
         static int ReadInt32(BinaryReader reader)
@@ -375,7 +391,7 @@ namespace gitadora_texbintool
             var stringMetadata = ReadNameSection(reader, offset + namOffset);
 
             reader.BaseStream.Seek(offset + rectOffset, SeekOrigin.Begin);
-            
+
             var rectInfoMetadata = new List<RectMetadata>();
             for (int i = 0; i < layerCount; i++)
             {
@@ -457,6 +473,26 @@ namespace gitadora_texbintool
             return texInfoList;
         }
 
+        public static FormatMetadata DeserializeFormatMetadata(string filename)
+        {
+            XmlSerializer serializer = new XmlSerializer(typeof(FormatMetadata));
+
+            StreamReader reader = new StreamReader(filename);
+            var formatMetdataList = (FormatMetadata)serializer.Deserialize(reader);
+            reader.Close();
+
+            for (var index = 0; index < formatMetdataList.FormatInfo.Count; index++)
+            {
+                formatMetdataList.FormatInfo[index] = new FormatInfo
+                {
+                    Filename = formatMetdataList.FormatInfo[index].Filename,
+                    FormatType = formatMetdataList.FormatInfo[index].FormatType,
+                };
+            }
+
+            return formatMetdataList;
+        }
+
         static void ParseTexbinFile(string filename, bool splitImages = true)
         {
             var outputPath = Path.Combine(Path.GetDirectoryName(filename), Path.GetFileNameWithoutExtension(filename));
@@ -518,6 +554,7 @@ namespace gitadora_texbintool
                     }
                 }
 
+                var formatMetadata = new FormatMetadata();
                 foreach (var entry in entries)
                 {
                     reader.BaseStream.Seek(entry.DataOffset, SeekOrigin.Begin);
@@ -550,6 +587,11 @@ namespace gitadora_texbintool
                             rectInfoList.Add(rectInfo);
                         }
 
+                        formatMetadata.FormatInfo.Add(new FormatInfo{
+                            Filename = entry.Filename,
+                            FormatType = data[0x2c]
+                        });
+
                         foreach (var rectInfo in rectInfoList)
                         {
                             try
@@ -578,10 +620,11 @@ namespace gitadora_texbintool
 
                                         var outputFilename = Path.Combine(outputPath, rectInfo.Filename);
                                         outputFilename += ext;
-                                        
+
                                         Console.WriteLine("Saving {0}...", outputFilename);
 
                                         File.WriteAllBytes(outputFilename, extractedData);
+                                        // File.WriteAllBytes(outputFilename.Replace(ext, ".bin"), data);
                                     }
                                 }
                             }
@@ -592,6 +635,11 @@ namespace gitadora_texbintool
                             }
                         }
                     }
+                }
+
+                if (!splitImages)
+                {
+                    Serialize<FormatMetadata>(formatMetadata, Path.Combine(outputPath, "_metadata-format.xml"));
                 }
             }
         }
@@ -627,7 +675,7 @@ namespace gitadora_texbintool
             for (int i = 0; i < filelist_sorted.Length; i++)
             {
                 var filelist_idx = filelist_unique.IndexOf(filelist_sorted[i]);
-                
+
                 nameSection.AddRange(BitConverter.GetBytes(CalculateHash(filelist_sorted[i])));
                 nameSection.AddRange(BitConverter.GetBytes(filelist_idx));
 
@@ -656,14 +704,32 @@ namespace gitadora_texbintool
 
         static void CreateTexbinFile(string pathname, bool generateRectSection = true, bool compressedData = true)
         {
-            var filelist = Directory.GetFiles(pathname).Where(x => !x.ToLower().EndsWith("_metadata.xml")).ToArray();
-            var filelist_unique = filelist.Select(Path.GetFileNameWithoutExtension).Distinct().Where(x => !x.ToLower().EndsWith("_metadata.xml")).ToList();
+            var filelist = Directory.GetFiles(pathname).Where(x => !x.ToLower().EndsWith(".xml")).ToArray();
+            var filelist_unique = filelist.Select(Path.GetFileNameWithoutExtension).Distinct().Where(x => !x.ToLower().EndsWith(".xml")).ToList();
             filelist_unique = filelist_unique.Select(x => x.ToUpper()).ToList();
 
             if (filelist_unique.Count != filelist.Length)
             {
                 Console.WriteLine("Folder has more files than expected. Are there multiple files with the same name (not including extension)?");
                 Environment.Exit(1);
+            }
+
+            var formatMetadata = new FormatMetadata();
+            if (File.Exists(Path.Combine(pathname, "_metadata-format.xml")))
+            {
+                formatMetadata = DeserializeFormatMetadata(Path.Combine(pathname, "_metadata-format.xml"));
+            }
+            else
+            {
+                foreach (var filename in filelist_unique)
+                {
+                    var data = new FormatInfo
+                    {
+                        Filename = filename,
+                        FormatType = 0,
+                    };
+                    formatMetadata.FormatInfo.Add(data);
+                }
             }
 
             var nameSection = CreateNameSection(filelist_unique);
@@ -682,11 +748,17 @@ namespace gitadora_texbintool
                 {
                     data = gitadora_textool.Program.CreateImageCore(data, true);
                 }
-                
+
+                var formatTypeList = formatMetadata.FormatInfo.Where(x =>
+                    String.CompareOrdinal(Path.GetFileNameWithoutExtension(filelist_unique[i]),
+                        x.Filename) == 0).ToList();
+
+                data[0x2c] = formatTypeList.Count > 0 ? formatTypeList[0].FormatType : data[0x2c];
+
                 fileinfoSection.AddRange(BitConverter.GetBytes(0));
                 fileinfoSection.AddRange(BitConverter.GetBytes(data.Length + 0x08));
                 fileinfoSection.AddRange(BitConverter.GetBytes(0x40 + nameSection.Count + (filelist_unique.Count * 0x0c) + dataSection.Count));
-                
+
                 if (compressedData)
                 {
                     dataSection.AddRange(Compress(data));
@@ -739,8 +811,8 @@ namespace gitadora_texbintool
 
                 var rectNameFilelist = rectInfo.RectInfo.Select(x => x.Filename)
                     .Select(Path.GetFileNameWithoutExtension).Distinct()
-                    .Where(x => !x.ToLower().EndsWith("_metadata.xml")).ToList();
-                
+                    .Where(x => !x.ToLower().EndsWith(".xml")).ToList();
+
                 var rectinfoSection = new List<byte>();
                 var rectNameSection = CreateNameSection(rectNameFilelist);
                 foreach (var data in rectInfo.RectInfo)
