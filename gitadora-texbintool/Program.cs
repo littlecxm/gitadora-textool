@@ -587,10 +587,12 @@ namespace gitadora_texbintool
                             rectInfoList.Add(rectInfo);
                         }
 
-                        formatMetadata.FormatInfo.Add(new FormatInfo{
-                            Filename = entry.Filename,
-                            FormatType = data[0x2c]
-                        });
+                        if (!splitImages) {
+                            formatMetadata.FormatInfo.Add(new FormatInfo{
+                                Filename = entry.Filename,
+                                FormatType = data[0x2c]
+                            });
+                        }
 
                         foreach (var rectInfo in rectInfoList)
                         {
@@ -625,6 +627,13 @@ namespace gitadora_texbintool
 
                                         File.WriteAllBytes(outputFilename, extractedData);
                                         // File.WriteAllBytes(outputFilename.Replace(ext, ".bin"), data);
+
+                                        if (splitImages) {
+                                            formatMetadata.FormatInfo.Add(new FormatInfo{
+                                                Filename = rectInfo.Filename,
+                                                FormatType = data[0x2c]
+                                            });
+                                        }
                                     }
                                 }
                             }
@@ -637,10 +646,7 @@ namespace gitadora_texbintool
                     }
                 }
 
-                if (!splitImages)
-                {
-                    Serialize<FormatMetadata>(formatMetadata, Path.Combine(outputPath, "_metadata-format.xml"));
-                }
+                Serialize<FormatMetadata>(formatMetadata, Path.Combine(outputPath, "_metadata-format.xml"));
             }
         }
 
