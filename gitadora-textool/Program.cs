@@ -158,7 +158,7 @@ namespace gitadora_textool
 
                 pixelFormat = PixelFormat.Format4bppIndexed;
 
-                for (int i = 0; i < paletteData.Length / 4; i++)
+                for (int i = 0; i < paletteData.Length; i += 4)
                 {
                     paletteEntries.Add(Color.FromArgb(paletteData[i + 3], paletteData[i], paletteData[i + 1], paletteData[i + 2]));
                 }
@@ -176,7 +176,7 @@ namespace gitadora_textool
 
                 pixelFormat = PixelFormat.Format8bppIndexed;
 
-                for (int i = 0; i < paletteData.Length / 4; i++)
+                for (int i = 0; i < paletteData.Length; i+=4)
                 {
                     paletteEntries.Add(Color.FromArgb(paletteData[i + 3], paletteData[i], paletteData[i + 1], paletteData[i + 2]));
                 }
