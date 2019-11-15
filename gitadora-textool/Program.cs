@@ -82,6 +82,7 @@ namespace gitadora_textool
                 BGRA_16BIT_FORMAT 0x0D
                 BGR_FORMAT 0x0E
                 BGRA_FORMAT 0x10
+                BGR_4BIT_FORMAT 0x11
                 BGR_8BIT_FORMAT 0x12
                 DXT1_FORMAT 0x16
                 DXT3_FORMAT 0x18
@@ -92,6 +93,8 @@ namespace gitadora_textool
 
             reader.BaseStream.Seek(0x40, SeekOrigin.Begin);
             var bitmapData = reader.ReadBytes(dataSize);
+
+            var paletteEntries = new List<Color>();
 
             var pixelFormat = PixelFormat.Undefined;
             if (dataFormat == 0x01)
@@ -142,10 +145,41 @@ namespace gitadora_textool
                 // BGRA_FORMAT
                 pixelFormat = PixelFormat.Format32bppArgb;
             }
+            else if (dataFormat == 0x11)
+            {
+                // BGR_4BIT_FORMAT
+                var bitmapDataOnly = new byte[width * height / 2];
+                Buffer.BlockCopy(bitmapData, 0, bitmapDataOnly, 0, bitmapDataOnly.Length);
+
+                var paletteData = new byte[bitmapData.Length - bitmapDataOnly.Length - 0x14]; // Skip palette header
+                Buffer.BlockCopy(bitmapData, bitmapDataOnly.Length + 0x14, paletteData, 0, paletteData.Length);
+
+                bitmapData = bitmapDataOnly;
+
+                pixelFormat = PixelFormat.Format4bppIndexed;
+
+                for (int i = 0; i < paletteData.Length / 4; i++)
+                {
+                    paletteEntries.Add(Color.FromArgb(paletteData[i + 3], paletteData[i], paletteData[i + 1], paletteData[i + 2]));
+                }
+            }
             else if (dataFormat == 0x12)
             {
                 // BGR_8BIT_FORMAT
-                throw new Exception("Found BGR_8BIT_FORMAT");
+                var bitmapDataOnly = new byte[width * height];
+                Buffer.BlockCopy(bitmapData, 0, bitmapDataOnly, 0, bitmapDataOnly.Length);
+
+                var paletteData = new byte[bitmapData.Length - bitmapDataOnly.Length - 0x14]; // Skip palette header
+                Buffer.BlockCopy(bitmapData, bitmapDataOnly.Length + 0x14, paletteData, 0, paletteData.Length);
+
+                bitmapData = bitmapDataOnly;
+
+                pixelFormat = PixelFormat.Format8bppIndexed;
+
+                for (int i = 0; i < paletteData.Length / 4; i++)
+                {
+                    paletteEntries.Add(Color.FromArgb(paletteData[i + 3], paletteData[i], paletteData[i + 1], paletteData[i + 2]));
+                }
             }
             else if (dataFormat == 0x16)
             {
@@ -167,7 +201,7 @@ namespace gitadora_textool
             }
             else
             {
-                throw new Exception("Found unknown pixel format");
+                throw new Exception(String.Format("Found unknown pixel format: {0:x2}", dataFormat));
             }
             
             for (int i = 0; i < bitmapData.Length;)
@@ -290,11 +324,22 @@ namespace gitadora_textool
                 {
                     ColorPalette palette = b.Palette;
                     Color[] entries = palette.Entries;
-                    for (int i = 0; i < 256; i++)
+
+                    if (paletteEntries.Count == 0)
                     {
-                        Color c = Color.FromArgb((byte)i, (byte)i, (byte)i);
-                        entries[i] = c;
+                        for (int i = 0; i < 256; i++)
+                        {
+                            Color c = Color.FromArgb((byte)i, (byte)i, (byte)i);
+                            entries[i] = c;
+                        }
+                    } else
+                    {
+                        for (int i = 0; i < paletteEntries.Count; i++)
+                        {
+                            entries[i] = paletteEntries[i];
+                        }
                     }
+
                     b.Palette = palette;
                 }
 
