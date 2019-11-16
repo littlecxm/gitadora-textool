@@ -162,6 +162,14 @@ namespace gitadora_textool
                 {
                     paletteEntries.Add(Color.FromArgb(paletteData[i + 3], paletteData[i], paletteData[i + 1], paletteData[i + 2]));
                 }
+
+                // Flip pixels
+                for (int i = 0; i < bitmapData.Length; i++)
+                {
+                    var l = (bitmapData[i] & 0x0f) << 4;
+                    var r = (bitmapData[i] & 0xf0) >> 4;
+                    bitmapData[i] = (byte)(l | r);
+                }
             }
             else if (dataFormat == 0x12)
             {
@@ -320,7 +328,7 @@ namespace gitadora_textool
             {
                 var b = new Bitmap(width, height, pixelFormat);
 
-                if (pixelFormat == PixelFormat.Format8bppIndexed)
+                if (pixelFormat == PixelFormat.Format8bppIndexed || pixelFormat == PixelFormat.Format4bppIndexed)
                 {
                     ColorPalette palette = b.Palette;
                     Color[] entries = palette.Entries;
