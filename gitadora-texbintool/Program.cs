@@ -46,6 +46,22 @@ namespace gitadora_texbintool
         }
     }
 
+    public class FormatInfo
+    {
+        public string Filename;
+        public byte FormatType;
+    }
+
+    public class FormatMetadata
+    {
+        public List<FormatInfo> FormatInfo;
+
+        public FormatMetadata()
+        {
+            FormatInfo = new List<FormatInfo>();
+        }
+    }
+
     class Program
     {
         static int ReadInt32(BinaryReader reader)
@@ -53,6 +69,13 @@ namespace gitadora_texbintool
             var data = reader.ReadBytes(4);
             Array.Reverse(data);
             return BitConverter.ToInt32(data, 0);
+        }
+
+        static void WriteInt32(MemoryStream writer, int value)
+        {
+            var data = BitConverter.GetBytes(value);
+            Array.Reverse(data);
+            writer.Write(data, 0, 4);
         }
 
         static byte[] Decompress(BinaryReader reader)
@@ -148,6 +171,134 @@ namespace gitadora_texbintool
             return outputData;
         }
 
+        public static byte[] Compress(byte[] Data)
+        {
+            // Based on: https://github.com/gdkchan/LegaiaText/blob/bbec0465428a9ff1858e4177588599629ca43302/LegaiaText/Legaia/Compression/LZSS.cs
+            using (MemoryStream Output = new MemoryStream())
+            {
+                ulong[] LookUp = new ulong[0x10000];
+
+                byte[] Dict = new byte[0x1000];
+
+                int DictAddr = 4078;
+                int SrcAddr = 0;
+                int BitsAddr = 0;
+
+                ushort Mask = 0x80;
+
+                byte Header = 0;
+
+                Output.Write(BitConverter.GetBytes(0), 0, 4);
+                Output.Write(BitConverter.GetBytes(0), 0, 4);
+
+                while (SrcAddr < Data.Length)
+                {
+                    if ((Mask <<= 1) == 0x100)
+                    {
+                        int OldAddr = BitsAddr;
+
+                        BitsAddr = (int)Output.Position;
+
+                        Output.Seek(OldAddr, SeekOrigin.Begin);
+                        Output.WriteByte(Header);
+
+                        Output.Seek(BitsAddr, SeekOrigin.Begin);
+                        Output.WriteByte(0);
+
+                        Header = 0;
+                        Mask = 1;
+                    }
+
+                    int Length = 2;
+                    int DictPos = 0;
+
+                    if (SrcAddr + 2 < Data.Length)
+                    {
+                        int Value;
+
+                        Value = Data[SrcAddr + 0] << 8;
+                        Value |= Data[SrcAddr + 1] << 0;
+
+                        for (int i = 0; i < 5; i++)
+                        {
+                            int Index = (int)((LookUp[Value] >> (i * 12)) & 0xfff);
+
+                            //First byte doesn't match, so the others won't match too
+                            if (Data[SrcAddr] != Dict[Index]) break;
+
+                            //Temporary dictionary used on comparisons
+                            byte[] CmpDict = new byte[0x1000];
+                            Array.Copy(Dict, CmpDict, Dict.Length);
+                            int CmpAddr = DictAddr;
+
+                            int MatchLen = 0;
+
+                            for (int j = 0; j < 18 && SrcAddr + j < Data.Length; j++)
+                            {
+                                if (CmpDict[(Index + j) & 0xfff] == Data[SrcAddr + j])
+                                    MatchLen++;
+                                else
+                                    break;
+
+                                CmpDict[CmpAddr] = Data[SrcAddr + j];
+                                CmpAddr = (CmpAddr + 1) & 0xfff;
+                            }
+
+                            if (MatchLen > Length && MatchLen < Output.Length)
+                            {
+                                Length = MatchLen;
+                                DictPos = Index;
+                            }
+                        }
+                    }
+
+                    if (Length > 2)
+                    {
+                        Output.WriteByte((byte)DictPos);
+
+                        int NibLo = (Length - 3) & 0xf;
+                        int NibHi = (DictPos >> 4) & 0xf0;
+
+                        Output.WriteByte((byte)(NibLo | NibHi));
+                    }
+                    else
+                    {
+                        Header |= (byte)Mask;
+
+                        Output.WriteByte(Data[SrcAddr]);
+
+                        Length = 1;
+                    }
+
+                    for (int i = 0; i < Length; i++)
+                    {
+                        if (SrcAddr + 1 < Data.Length)
+                        {
+                            int Value;
+
+                            Value = Data[SrcAddr + 0] << 8;
+                            Value |= Data[SrcAddr + 1] << 0;
+
+                            LookUp[Value] <<= 12;
+                            LookUp[Value] |= (uint)DictAddr;
+                        }
+
+                        Dict[DictAddr] = Data[SrcAddr++];
+                        DictAddr = (DictAddr + 1) & 0xfff;
+                    }
+                }
+
+                Output.Seek(BitsAddr, SeekOrigin.Begin);
+                Output.WriteByte(Header);
+
+                Output.Seek(0, SeekOrigin.Begin);
+                WriteInt32(Output, Data.Length);
+                WriteInt32(Output, (int)Output.Length - 8);
+
+                return Output.ToArray();
+            }
+        }
+
         static int CalculateHash(string input)
         {
             int hash = 0;
@@ -240,7 +391,7 @@ namespace gitadora_texbintool
             var stringMetadata = ReadNameSection(reader, offset + namOffset);
 
             reader.BaseStream.Seek(offset + rectOffset, SeekOrigin.Begin);
-            
+
             var rectInfoMetadata = new List<RectMetadata>();
             for (int i = 0; i < layerCount; i++)
             {
@@ -322,6 +473,26 @@ namespace gitadora_texbintool
             return texInfoList;
         }
 
+        public static FormatMetadata DeserializeFormatMetadata(string filename)
+        {
+            XmlSerializer serializer = new XmlSerializer(typeof(FormatMetadata));
+
+            StreamReader reader = new StreamReader(filename);
+            var formatMetdataList = (FormatMetadata)serializer.Deserialize(reader);
+            reader.Close();
+
+            for (var index = 0; index < formatMetdataList.FormatInfo.Count; index++)
+            {
+                formatMetdataList.FormatInfo[index] = new FormatInfo
+                {
+                    Filename = formatMetdataList.FormatInfo[index].Filename,
+                    FormatType = formatMetdataList.FormatInfo[index].FormatType,
+                };
+            }
+
+            return formatMetdataList;
+        }
+
         static void ParseTexbinFile(string filename, bool splitImages = true)
         {
             var outputPath = Path.Combine(Path.GetDirectoryName(filename), Path.GetFileNameWithoutExtension(filename));
@@ -383,6 +554,7 @@ namespace gitadora_texbintool
                     }
                 }
 
+                var formatMetadata = new FormatMetadata();
                 foreach (var entry in entries)
                 {
                     reader.BaseStream.Seek(entry.DataOffset, SeekOrigin.Begin);
@@ -415,6 +587,13 @@ namespace gitadora_texbintool
                             rectInfoList.Add(rectInfo);
                         }
 
+                        if (!splitImages) {
+                            formatMetadata.FormatInfo.Add(new FormatInfo{
+                                Filename = entry.Filename,
+                                FormatType = data[0x2c]
+                            });
+                        }
+
                         foreach (var rectInfo in rectInfoList)
                         {
                             try
@@ -443,10 +622,18 @@ namespace gitadora_texbintool
 
                                         var outputFilename = Path.Combine(outputPath, rectInfo.Filename);
                                         outputFilename += ext;
-                                        
+
                                         Console.WriteLine("Saving {0}...", outputFilename);
 
                                         File.WriteAllBytes(outputFilename, extractedData);
+                                        // File.WriteAllBytes(outputFilename.Replace(ext, ".bin"), data);
+
+                                        if (splitImages) {
+                                            formatMetadata.FormatInfo.Add(new FormatInfo{
+                                                Filename = rectInfo.Filename,
+                                                FormatType = data[0x2c]
+                                            });
+                                        }
                                     }
                                 }
                             }
@@ -458,6 +645,8 @@ namespace gitadora_texbintool
                         }
                     }
                 }
+
+                Serialize<FormatMetadata>(formatMetadata, Path.Combine(outputPath, "_metadata-format.xml"));
             }
         }
 
@@ -492,7 +681,7 @@ namespace gitadora_texbintool
             for (int i = 0; i < filelist_sorted.Length; i++)
             {
                 var filelist_idx = filelist_unique.IndexOf(filelist_sorted[i]);
-                
+
                 nameSection.AddRange(BitConverter.GetBytes(CalculateHash(filelist_sorted[i])));
                 nameSection.AddRange(BitConverter.GetBytes(filelist_idx));
 
@@ -519,16 +708,34 @@ namespace gitadora_texbintool
             return nameSection;
         }
 
-        static void CreateTexbinFile(string pathname, bool generateRectSection = true)
+        static void CreateTexbinFile(string pathname, bool generateRectSection = true, bool compressedData = true)
         {
-            var filelist = Directory.GetFiles(pathname).Where(x => !x.ToLower().EndsWith("_metadata.xml")).ToArray();
-            var filelist_unique = filelist.Select(Path.GetFileNameWithoutExtension).Distinct().Where(x => !x.ToLower().EndsWith("_metadata.xml")).ToList();
+            var filelist = Directory.GetFiles(pathname).Where(x => !x.ToLower().EndsWith(".xml")).ToArray();
+            var filelist_unique = filelist.Select(Path.GetFileNameWithoutExtension).Distinct().Where(x => !x.ToLower().EndsWith(".xml")).ToList();
             filelist_unique = filelist_unique.Select(x => x.ToUpper()).ToList();
 
             if (filelist_unique.Count != filelist.Length)
             {
                 Console.WriteLine("Folder has more files than expected. Are there multiple files with the same name (not including extension)?");
                 Environment.Exit(1);
+            }
+
+            var formatMetadata = new FormatMetadata();
+            if (File.Exists(Path.Combine(pathname, "_metadata-format.xml")))
+            {
+                formatMetadata = DeserializeFormatMetadata(Path.Combine(pathname, "_metadata-format.xml"));
+            }
+            else
+            {
+                foreach (var filename in filelist_unique)
+                {
+                    var data = new FormatInfo
+                    {
+                        Filename = filename,
+                        FormatType = 0,
+                    };
+                    formatMetadata.FormatInfo.Add(data);
+                }
             }
 
             var nameSection = CreateNameSection(filelist_unique);
@@ -547,15 +754,28 @@ namespace gitadora_texbintool
                 {
                     data = gitadora_textool.Program.CreateImageCore(data, true);
                 }
-                
+
+                var formatTypeList = formatMetadata.FormatInfo.Where(x =>
+                    String.CompareOrdinal(Path.GetFileNameWithoutExtension(filelist_unique[i]),
+                        x.Filename) == 0).ToList();
+
+                data[0x2c] = formatTypeList.Count > 0 ? formatTypeList[0].FormatType : data[0x2c];
+
                 fileinfoSection.AddRange(BitConverter.GetBytes(0));
                 fileinfoSection.AddRange(BitConverter.GetBytes(data.Length + 0x08));
                 fileinfoSection.AddRange(BitConverter.GetBytes(0x40 + nameSection.Count + (filelist_unique.Count * 0x0c) + dataSection.Count));
 
-                dataSection.AddRange(BitConverter.GetBytes(data.Length).Reverse());
-                dataSection.AddRange(BitConverter.GetBytes(0));
-                dataSection.AddRange(data);
-                
+                if (compressedData)
+                {
+                    dataSection.AddRange(Compress(data));
+                }
+                else
+                {
+                    dataSection.AddRange(BitConverter.GetBytes(data.Length).Reverse());
+                    dataSection.AddRange(BitConverter.GetBytes(0));
+                    dataSection.AddRange(data);
+                }
+
                 imageRectInfo[filelist_unique[i]] = new Tuple<ushort, ushort>((ushort)((data[0x11] << 8) | data[0x10]), (ushort)((data[0x13] << 8) | data[0x12]));
             }
 
@@ -597,8 +817,8 @@ namespace gitadora_texbintool
 
                 var rectNameFilelist = rectInfo.RectInfo.Select(x => x.Filename)
                     .Select(Path.GetFileNameWithoutExtension).Distinct()
-                    .Where(x => !x.ToLower().EndsWith("_metadata.xml")).ToList();
-                
+                    .Where(x => !x.ToLower().EndsWith(".xml")).ToList();
+
                 var rectinfoSection = new List<byte>();
                 var rectNameSection = CreateNameSection(rectNameFilelist);
                 foreach (var data in rectInfo.RectInfo)
@@ -649,27 +869,37 @@ namespace gitadora_texbintool
         {
             if (args.Length <= 0)
             {
-                Console.WriteLine("usage: {0} [--no-rect/--nr] [--no-split/--ns] input_filename", AppDomain.CurrentDomain.FriendlyName);
-                Console.WriteLine("--no-rect/--nr: Don't create a rect table (Some games like Jubeat don't use the rect table)");
-                Console.WriteLine("--no-split/--ns: Don't split images into separate images if they use the rect table");
+                Console.WriteLine("usage: {0} [--no-rect/-nr] [--no-split/-ns] [--uncompressed/-u] input_filename", AppDomain.CurrentDomain.FriendlyName);
+                Console.WriteLine("--no-rect/-nr: Don't create a rect table (Some games like Jubeat don't use the rect table)");
+                Console.WriteLine("--no-split/-ns: Don't split images into separate images if they use the rect table");
+                Console.WriteLine("--uncompressed/-u: Don't compress data when creating archive");
                 Environment.Exit(1);
             }
 
             var splitImage = true;
             var generateRectSection = true;
-            
+            var compressedData = true;
+
             var filenames = new List<string>();
             for (var index = 0; index < args.Length; index++)
             {
-                if (String.CompareOrdinal(args[index].ToLower(), "--no-rect") == 0 
-                    || String.CompareOrdinal(args[index].ToLower(), "--nr") == 0)
+                if (String.CompareOrdinal(args[index].ToLower(), "--no-rect") == 0
+                    || String.CompareOrdinal(args[index].ToLower(), "--nr") == 0
+                    || String.CompareOrdinal(args[index].ToLower(), "-nr") == 0)
                 {
                     generateRectSection = false;
                 }
                 else if (String.CompareOrdinal(args[index].ToLower(), "--no-split") == 0
-                    || String.CompareOrdinal(args[index].ToLower(), "--ns") == 0)
+                    || String.CompareOrdinal(args[index].ToLower(), "--ns") == 0
+                    || String.CompareOrdinal(args[index].ToLower(), "-ns") == 0)
                 {
                     splitImage = false;
+                }
+                else if (String.CompareOrdinal(args[index].ToLower(), "--uncompressed") == 0
+                    || String.CompareOrdinal(args[index].ToLower(), "--u") == 0
+                    || String.CompareOrdinal(args[index].ToLower(), "-u") == 0)
+                {
+                    compressedData = false;
                 }
                 else
                 {
@@ -681,7 +911,7 @@ namespace gitadora_texbintool
             {
                 if (Directory.Exists(filename))
                 {
-                    CreateTexbinFile(filename, generateRectSection);
+                    CreateTexbinFile(filename, generateRectSection, compressedData);
                 }
                 else if (File.Exists(filename))
                 {
